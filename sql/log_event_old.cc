@@ -1850,12 +1850,17 @@ void Old_rows_log_event::pack_info(Protocol *protocol)
 
 
 #ifdef MYSQL_CLIENT
+/* Method duplicates Rows_log_event's one */
 void Old_rows_log_event::print_helper(FILE *file,
                                       PRINT_EVENT_INFO *print_event_info,
                                       char const *const name)
 {
   IO_CACHE *const head= &print_event_info->head_cache;
   IO_CACHE *const body= &print_event_info->body_cache;
+  bool do_print_encoded_base64=
+    print_event_info->base64_output_mode != BASE64_OUTPUT_DECODE_ROWS &&
+    !print_event_info->short_form;
+
   if (!print_event_info->short_form)
   {
     bool const last_stmt_event= get_flags(STMT_END_F);
@@ -1863,13 +1868,72 @@ void Old_rows_log_event::print_helper(FILE *file,
     my_b_printf(head, "\t%s: table id %lu%s\n",
                 name, m_table_id,
                 last_stmt_event ? " flags: STMT_END_F" : "");
-    print_base64(body, print_event_info, !last_stmt_event);
+    print_base64(body, print_event_info, do_print_encoded_base64);
   }
 
   if (get_flags(STMT_END_F))
   {
-    copy_event_cache_to_file_and_reinit(head, file);
-    copy_event_cache_to_file_and_reinit(body, file);
+    uint n_frag= 1;
+    const char* before_frag= NULL;
+    char* after_frag= NULL;
+    char* after_last= NULL;
+    char* after_last_per_frag= NULL;
+    const char fmt_last_frag[]=   "\nBINLOG %%d, 'binlog_fragment'%s\n";
+    const char fmt_last_per_frag[]= "\nSET @binlog_fragment_%%d = NULL%s\n";
+    const char fmt_before_frag[]= "\nSET @binlog_fragment_%d ='\n";
+    /*
+      Buffer to pass to copy_cache_frag_to_file_and_reinit to
+      compute formatted strings according to specifiers.
+      The sizes may depend on an actual fragment number size in terms of decimal
+      signs so its maximum is estimated (not precisely yet safely) below.
+    */
+    char buf[(sizeof(fmt_last_frag) + sizeof(fmt_last_per_frag))
+             + ((sizeof(n_frag) * 8)/3 + 1)                // decimal index
+             + sizeof(print_event_info->delimiter + 3)];   // delim, \n and 0.
+    if (copy_event_cache_to_file_and_reinit(head, file))
+    {
+      head->error= -1;
+      return;
+    }
+
+    if (do_print_encoded_base64)
+    {
+      after_frag= (char*) my_malloc(sizeof(buf), MYF(MY_WME));
+      sprintf(after_frag, "'%s\n", print_event_info->delimiter);
+      if (my_b_tell(body) >
+#ifndef DBUG_OFF
+          opt_binlog_rows_event_max_encoded_size
+#else
+          MAX_MAX_ALLOWED_PACKET
+#endif
+          )
+        n_frag= BINLOG_ROWS_EVENT_ENCODED_FRAGMENTS;
+      if (n_frag > 1)
+      {
+        before_frag= fmt_before_frag;
+        after_last= (char*) my_malloc(sizeof(buf), MYF(MY_WME));
+        sprintf(after_last, fmt_last_frag, (char*) print_event_info->delimiter);
+        after_last_per_frag= (char*) my_malloc(sizeof(buf), MYF(MY_WME));
+        sprintf(after_last_per_frag, fmt_last_per_frag,
+                (char*) print_event_info->delimiter);
+      }
+      else
+      {
+        before_frag= "\nBINLOG '\n";
+      }
+    }
+    if (copy_cache_frag_to_file_and_reinit(body, file, n_frag,
+                                           before_frag, after_frag,
+                                           after_last, after_last_per_frag, buf))
+    {
+      body->error= -1;
+      goto err;
+    }
+
+err:
+    my_free(after_frag);
+    my_free(after_last);
+    my_free(after_last_per_frag);
   }
 }
 #endif

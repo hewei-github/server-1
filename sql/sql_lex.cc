@@ -2874,7 +2874,8 @@ LEX::LEX()
   : explain(NULL),
     result(0), arena_for_set_stmt(0), mem_root_for_set_stmt(0),
     option_type(OPT_DEFAULT), context_analysis_only(0), sphead(0),
-    is_lex_started(0), limit_rows_examined_cnt(ULONGLONG_MAX)
+    is_lex_started(0), limit_rows_examined_cnt(ULONGLONG_MAX),
+    fragmented_binlog_event(0)
 {
 
   init_dynamic_array2(&plugins, sizeof(plugin_ref), plugins_static_buffer,

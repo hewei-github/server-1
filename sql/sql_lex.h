@@ -2747,6 +2747,7 @@ public:
   */
   Item *limit_rows_examined;
   ulonglong limit_rows_examined_cnt;
+  uint fragmented_binlog_event;
   /**
     Holds a set of domain_ids for deletion at FLUSH..DELETE_DOMAIN_ID
   */

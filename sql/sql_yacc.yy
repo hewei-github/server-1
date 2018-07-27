@@ -7951,7 +7951,18 @@ binlog_base64_event:
             Lex->sql_command = SQLCOM_BINLOG_BASE64_EVENT;
             Lex->comment= $2;
           }
-        ;
+          |
+          BINLOG_SYM NUM_literal ',' TEXT_STRING_sys
+          {
+            Lex->sql_command = SQLCOM_BINLOG_BASE64_EVENT;
+            if ((Lex->fragmented_binlog_event= $2->val_int()) <= 0)
+            {
+              my_parse_error(thd, ER_SYNTAX_ERROR);
+              MYSQL_YYABORT;
+            }
+            Lex->ident= $4;
+          }
+         ;
 
 check_view_or_table:
           table_or_tables table_list opt_mi_check_type
